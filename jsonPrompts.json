@@ -1,11 +1,17 @@
 {
-	"order_id": 1234,
-	"isSale": true,
-	"orderItems": [{
-		"EAN": 5000382112686,
-		"Quantity": 1
-	}]
-}
-{
-    "search": "test"
+  "orderItems": [
+    {
+      "EAN": 5000382112686,
+      "Quantity": 1,
+      "Discount": 10.0,
+      "customPrice": 10.0
+    },
+    {
+      "EAN": 5000382112686,
+      "Quantity": 20,
+      "isSale": false
+    }
+  ],
+  "refundOrderID": 32394101293421,
+  "refundReason": "I don't like it"
 }
