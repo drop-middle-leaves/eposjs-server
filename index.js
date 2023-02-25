@@ -30,8 +30,6 @@ app.post("/orderCreate", async (req, res, next) => {
   try {
     //retrieve the required data from the front end
     const { orderItems } = req.body;
-    const { refundOrderID } = req.body;
-    const { refundReason } = req.body;
 
     // Create Payment Link in Square
     try {
@@ -60,29 +58,13 @@ app.post("/orderCreate", async (req, res, next) => {
         // Check if a custom price has been set
         if (key.customPrice) {
           var price = parseFloat(key.customPrice);
-        } else if (!key.isSale || key.isSale == true) {
+        } else {
           // Get product price from database
           const priceQuery = await pool.query(
             "SELECT priceHistory.gross FROM priceHistory JOIN product ON priceHistory.product_fk = product.product_pk WHERE ((product.EAN = $1) AND (((priceHistory.startDate <= CURRENT_TIMESTAMP) AND (priceHistory.endDate IS NULL)) OR ((priceHistory.startDate <= CURRENT_TIMESTAMP) AND (priceHistory.endDate > CURRENT_TIMESTAMP))));",
             [key.EAN]
           );
           var price = parseFloat(priceQuery.rows[0].gross);
-        } else {
-          // Get the product price from database at the time of the original order
-          const originalOrderTimeQuery = await pool.query(
-            "SELECT ordertime FROM orders WHERE order_id = $1",
-            [refundOrderID]
-          );
-          const originalOrderTime = originalOrderTimeQuery.rows[0].ordertime;
-
-          // Get the product price from database at the time of the original order
-          const priceQuery = await pool.query(
-            "SELECT priceHistory.gross FROM priceHistory JOIN product ON priceHistory.product_fk = product.product_pk WHERE ((product.EAN = $1) AND (((priceHistory.startDate <= $2) AND (priceHistory.endDate IS NULL)) OR ((priceHistory.startDate <= $2) AND (priceHistory.endDate > $2))));",
-            [key.EAN, originalOrderTime]
-          );
-
-          // Set the price to the price at the time of the original order, in negative
-          var price = -Math.abs(parseFloat(priceQuery.rows[0].gross));
         }
 
         // Check if a discount has been applied
@@ -155,14 +137,6 @@ app.post("/orderCreate", async (req, res, next) => {
         await pool.query(
           "UPDATE order_item SET customPrice = $1 WHERE order_item_pk = $2",
           [key.customPrice, orderItemRequest.rows[0].order_item_pk]
-        );
-      }
-
-      if (key.isSale == false) {
-        // Create entry in the refund table with relevant information
-        const refundRequest = await pool.query(
-          "INSERT INTO refund (original_order_id, new_order_id, product_fk, quantity, description) VALUES($1, $2, $3, $4, $5) RETURNING *",
-          [refundOrderID, order_id, product_fk, key.Quantity, refundReason]
         );
       }
     }
