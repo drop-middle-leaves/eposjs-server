@@ -156,6 +156,26 @@ app.post("/orderCreate", async (req, res, next) => {
   }
 });
 
+app.post("/refund", async (req, res, next) => {
+  try {
+    // Retrieve the required data from the front end
+    const { order_id } = req.body;
+
+    // Get payment_id from database
+    const payment_id = await pool.query(
+      "SELECT payment_id FROM orders WHERE order_id = $1",
+      [order_id]
+    );
+    const payment_id_string = payment_id.rows[0].payment_id;
+
+    // Create unique key for Square (not used outside the api call)
+    const idempotencyKey = require("crypto").randomBytes(22).toString("hex");
+  } catch (err) {
+    res.json(err.message);
+    console.error(err.message);
+  }
+});
+
 app.post("/search", async (req, res, next) => {
   try {
     // Retrieve the required data from the front end
