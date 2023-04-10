@@ -31,6 +31,8 @@ app.post("/orderCreate", async (req, res, next) => {
     //retrieve the required data from the front end
     const { orderItems } = req.body;
 
+    console.log(orderItems, "Attempting Order");
+
     // Create Payment Link in Square
     try {
       // Create unique key for Square (not used outside the api call)
@@ -90,6 +92,8 @@ app.post("/orderCreate", async (req, res, next) => {
 
       const response = await client.checkoutApi.createPaymentLink(order);
 
+      console.log(response.body);
+
       // Parses the JSON return value into something JS can use
       const jsonResponse = JSON.parse(response.body);
 
@@ -127,7 +131,7 @@ app.post("/orderCreate", async (req, res, next) => {
       // If a discount has been applied, update the record in the order_item table
       if (key.Discount) {
         await pool.query(
-          "UPDATE order_item SET discount = $1 WHERE order_item_pk = $2",
+          "UPDATE order_item SET percentagemodifier = $1 WHERE order_item_pk = $2",
           [key.Discount, orderItemRequest.rows[0].order_item_pk]
         );
       }
