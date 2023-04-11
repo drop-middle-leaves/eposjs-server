@@ -1,6 +1,13 @@
 // Pull in required dependencies, including the connection to the PostgreSQL database
 const express = require("express");
 const app = express();
+const http = require("http").createServer(app);
+const io = require("socket.io")(http, {
+  cors: {
+    origin: "*",
+  },
+});
+
 const pool = require("./db.js");
 require("dotenv").config();
 const { Client, Environment } = require("square");
@@ -23,6 +30,23 @@ app.use(function (req, res, next) {
   next();
 });
 
+// Websocket connection
+io.on("connection", (socket) => {
+  console.log("A user connected");
+
+  // Listen for disconnect
+  socket.on("disconnect", () => {
+    console.log("User disconnected");
+  });
+
+  // Listen for incoming data
+  socket.on("data", (data) => {
+    console.log("Received data: ${data}");
+    // Broadcast data to all connected clients
+    io.emit("data", data);
+  });
+});
+
 // Routes
 
 // Create a new order
@@ -30,8 +54,6 @@ app.post("/orderCreate", async (req, res, next) => {
   try {
     //retrieve the required data from the front end
     const { orderItems } = req.body;
-
-    console.log(orderItems, "Attempting Order");
 
     // Create Payment Link in Square
     try {
@@ -91,8 +113,6 @@ app.post("/orderCreate", async (req, res, next) => {
       }
 
       const response = await client.checkoutApi.createPaymentLink(order);
-
-      console.log(response.body);
 
       // Parses the JSON return value into something JS can use
       const jsonResponse = JSON.parse(response.body);
@@ -160,26 +180,6 @@ app.post("/orderCreate", async (req, res, next) => {
   }
 });
 
-app.post("/refund", async (req, res, next) => {
-  try {
-    // Retrieve the required data from the front end
-    const { order_id } = req.body;
-
-    // Get payment_id from database
-    const payment_id = await pool.query(
-      "SELECT payment_id FROM orders WHERE order_id = $1",
-      [order_id]
-    );
-    const payment_id_string = payment_id.rows[0].payment_id;
-
-    // Create unique key for Square (not used outside the api call)
-    const idempotencyKey = require("crypto").randomBytes(22).toString("hex");
-  } catch (err) {
-    res.json(err.message);
-    console.error(err.message);
-  }
-});
-
 app.post("/search", async (req, res, next) => {
   try {
     // Retrieve the required data from the front end
@@ -194,8 +194,6 @@ app.post("/search", async (req, res, next) => {
     }
     // Join string
     search = search.join(" ");
-    console.log(search);
-
     // Create an array to store the data to be returned
     let returnData = [];
 
@@ -204,7 +202,6 @@ app.post("/search", async (req, res, next) => {
       "SELECT * FROM product WHERE description LIKE $1",
       [search]
     );
-    console.log(products.rows);
     // Add products to return data
     for (const key of products.rows) {
       returnData.push({
@@ -215,6 +212,212 @@ app.post("/search", async (req, res, next) => {
 
     //return the data
     res.json(returnData);
+  } catch (err) {
+    res.json(err.message);
+    console.error(err.message);
+  }
+});
+
+app.post("/paymentCheck", async (req, res, next) => {
+  try {
+    // Retrieve the required data from the front end
+    let { orderID } = req.body;
+
+    // Check with database
+    const isSettled = await pool.query(
+      "SELECT issettled FROM orders WHERE order_id = $1",
+      [orderID]
+    );
+    const isSettledBool = isSettled.rows[0].issettled;
+
+    //return the data
+    res.json(isSettledBool);
+  } catch (err) {
+    res.json(err.message);
+    console.error(err.message);
+  }
+});
+
+app.post("/cancelOrder", async (req, res, next) => {
+  try {
+    // Retrieve the required data from the front end
+    let { orderID } = req.body;
+
+    // Find the order_pk of the order to be cancelled
+    const order_pk = await pool.query(
+      "SELECT order_pk FROM orders WHERE order_id = $1",
+      [orderID]
+    );
+    const order_pk_int = order_pk.rows[0].order_pk;
+
+    // Delete the order items from the order_items table
+    await pool.query("DELETE FROM order_item WHERE order_fk = $1", [
+      order_pk_int,
+    ]);
+
+    // Delete the order from the orders table
+    await pool.query("DELETE FROM orders WHERE order_id = $1", [orderID]);
+
+    // Return the data
+    res.json("Order cancelled");
+  } catch (err) {
+    res.json(err.message);
+    console.error(err.message);
+  }
+});
+
+app.post("/refund", async (req, res, next) => {
+  try {
+    // Retrieve the required data from the front end
+    const { paymentID, EANs } = req.body;
+
+    // Get order_pk from database
+    const order_pk = await pool.query(
+      "SELECT order_pk FROM orders WHERE payment_id = $1",
+      [paymentID]
+    );
+    const order_pk_int = order_pk.rows[0].order_pk;
+
+    // Throw error if undefined
+    if (order_pk_int == undefined) {
+      throw new Error("Order does not exist, or is not settled");
+    }
+
+    // Get ordertime
+    const orderTime = await pool.query(
+      "SELECT ordertime FROM orders WHERE payment_id = $1",
+      [paymentID]
+    );
+    const orderTimeVal = orderTime.rows[0].ordertime;
+
+    refund = [];
+    // Check if the order items exist
+    for (const key of EANs) {
+      // Get product_pk from database
+      const product_fk = await pool.query(
+        "SELECT product_pk FROM product WHERE ean = $1",
+        [key.EAN]
+      );
+      const product_fk_int = product_fk.rows[0].product_pk;
+
+      // Get order_item_pk from database
+      const orderItemRequest = await pool.query(
+        "SELECT order_item_pk FROM order_item WHERE order_fk = $1 AND product_fk = $2",
+        [order_pk_int, product_fk_int]
+      );
+      const orderItemRequestInt = orderItemRequest.rows[0].order_item_pk;
+
+      // Throw error if undefined
+      if (orderItemRequest.rows[0] == undefined) {
+        throw new Error("Order item $1 does not exist", [key.EAN]);
+      }
+
+      // Ensure quantity to be refunded is correct.
+      if (key.Quantity > orderItemRequest.rows[0].quantity) {
+        throw new Error(
+          "Quantity to be refunded is greater than quantity in order"
+        );
+      }
+
+      // Get custom price from database
+      const customPrice = await pool.query(
+        "SELECT customprice FROM order_item WHERE order_item_pk = $1",
+        [orderItemRequestInt]
+      );
+      // If the custom price is not null, use it
+      if (customPrice.rows[0].price != null) {
+        var priceVal = customPrice.rows[0].price;
+      } else {
+        // Else get price from priceHistory at time of purchase
+        const price = await pool.query(
+          "SELECT priceHistory.gross FROM priceHistory JOIN product ON priceHistory.product_fk = product.product_pk WHERE ((product.EAN = $1) AND (((priceHistory.startDate <= $2) AND (priceHistory.endDate IS NULL)) OR ((priceHistory.startDate <= $2) AND (priceHistory.endDate >= $2))))",
+          [key.EAN, orderTimeVal]
+        );
+        var priceVal = price.rows[0].gross;
+      }
+
+      // If a discount was applied, get and apply discount
+      const discount = await pool.query(
+        "SELECT percentagemodifier FROM order_item WHERE order_item_pk = $1",
+        [orderItemRequestInt]
+      );
+      if (discount.rows[0].percentagemodifier != null) {
+        priceVal = priceVal * (1 - discount.rows[0].percentagemodifier / 100);
+      }
+
+      // Add to refund array
+      refund.push({
+        product_pk: product_fk_int,
+        quantity: key.Quantity,
+        price: priceVal,
+      });
+    }
+
+    // Generate idempotency key
+    const idempotencyKey = require("crypto").randomBytes(22).toString("hex");
+
+    // Add up the total refund amount
+    let totalRefund = 0;
+    for (const key of refund) {
+      totalRefund += key.price * key.quantity;
+    }
+    // Times by 100 to convert to pence
+    totalRefund = totalRefund * 100;
+
+    // Create a refund
+    try {
+      const response = await client.refundsApi.refundPayment({
+        idempotencyKey: idempotencyKey,
+        amountMoney: {
+          amount: totalRefund,
+          currency: "GBP",
+        },
+        paymentId: paymentID,
+      });
+
+      if (response.result.refund.status == "PENDING") {
+        // Remove the refunded items from the order
+        for (const key of refund) {
+          await pool.query(
+            "UPDATE order_item SET quantity = quantity - $1 WHERE order_fk = $2 AND product_fk = $3",
+            [key.quantity, order_pk_int, key.product_pk]
+          );
+          // If the quantity is now 0, delete the order item
+          const quantity = await pool.query(
+            "SELECT quantity FROM order_item WHERE order_fk = $1 AND product_fk = $2",
+            [order_pk_int, key.product_pk]
+          );
+          if (quantity.rows[0].quantity == 0) {
+            await pool.query(
+              "DELETE FROM order_item WHERE order_fk = $1 AND product_fk = $2",
+              [order_pk_int, key.product_pk]
+            );
+          }
+
+          // Update stock levels
+          await pool.query(
+            "UPDATE product SET stock = stock + $1 WHERE product_pk = $2",
+            [key.quantity, key.product_pk]
+          );
+        }
+
+        // If the order is now empty, delete the order
+        const orderItems = await pool.query(
+          "SELECT * FROM order_item WHERE order_fk = $1",
+          [order_pk_int]
+        );
+        if (orderItems.rows.length == 0) {
+          await pool.query("DELETE FROM orders WHERE order_pk = $1", [
+            order_pk_int,
+          ]);
+        }
+        res.json("Refund successful");
+      } else {
+        throw new Error("Refund failed");
+      }
+    } catch (error) {
+      throw new Error(error);
+    }
   } catch (err) {
     res.json(err.message);
     console.error(err.message);
@@ -321,6 +524,6 @@ app.post("/getOrderInfo", async (req, res, next) => {
   }
 });
 
-app.listen(5200, () => {
+http.listen(5200, () => {
   console.log("Server is running on port 5200");
 });

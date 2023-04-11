@@ -28,7 +28,15 @@ app.post("/", async (req, res) => {
       [event.data.object.payment.order_id]
     );
 
-    isSettled = isSettled.rows[0].issettled;
+    console.log(isSettled.rows);
+
+    if (isSettled.rows.length !== 0) {
+      isSettled = isSettled.rows[0].issettled;
+      console.log(1);
+    } else {
+      isSettled = true;
+      console.log(2);
+    }
 
     if (event.data.object.payment.status === "COMPLETED" && !isSettled) {
       // Retrieve the order ID from the payment

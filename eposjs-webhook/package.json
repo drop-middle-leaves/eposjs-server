@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "license": "MIT",
+  "scripts": {
+    "run": "node index.js"
+  },
   "dependencies": {
     "body-parser": "^1.20.2",
     "dotenv": "^16.0.3",
