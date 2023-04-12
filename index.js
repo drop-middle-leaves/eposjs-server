@@ -32,18 +32,21 @@ app.use(function (req, res, next) {
 
 // Websocket connection
 io.on("connection", (socket) => {
-  console.log("A user connected");
-
-  // Listen for disconnect
-  socket.on("disconnect", () => {
-    console.log("User disconnected");
+  // Listen for incoming data on the "currentTill" channel
+  socket.on("currentTill", (data) => {
+    // Broadcast data to all connected clients
+    io.emit("currentTill", data);
   });
 
-  // Listen for incoming data
-  socket.on("data", (data) => {
-    console.log("Received data: ${data}");
+  socket.on("currentSelected", (data) => {
     // Broadcast data to all connected clients
-    io.emit("data", data);
+    io.emit("currentSelected", data);
+  });
+
+  socket.on("paymentURL", (data) => {
+    // Broadcast data to all connected clients
+    console.log(data);
+    io.emit("paymentURL", data);
   });
 });
 
