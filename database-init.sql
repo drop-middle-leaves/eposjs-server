@@ -1,11 +1,11 @@
 CREATE DATABASE jsepos;
 
-CREATE TABLE orders (
+CREATE TABLE orders (good they 
     order_pk SERIAL PRIMARY KEY,
     order_id VARCHAR(255) NULL,
     isSettled BOOLEAN DEFAULT(FALSE) NOT NULL,
-    isSale BOOLEAN NOT NULL,
-    orderTime TIMESTAMP DEFAULT(CURRENT_TIMESTAMP) NOT NULL
+    orderTime TIMESTAMP DEFAULT(CURRENT_TIMESTAMP) NOT NULL,
+    payment_id CHARACTER VARCHAR(255) NULL,
 );
 
 CREATE TABLE order_item (
@@ -14,6 +14,7 @@ CREATE TABLE order_item (
     product_fk BIGINT NOT NULL,
     quantity INT NOT NULL,
     percentageModifier DECIMAL NULL,
+    customPrice numeric(10,2) NULL,
     FOREIGN KEY (order_fk) REFERENCES orders(order_pk),
     FOREIGN KEY (product_fk) REFERENCES product(product_pk)
 );
